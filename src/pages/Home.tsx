@@ -7,6 +7,8 @@ import { useAttributionFormat } from "@/contexts/AttributionContext";
 import { useBasket } from "@/hooks/useBasket";
 import { ImageCard } from "@/components/ImageCard";
 import { BasketDrawer } from "@/components/BasketDrawer";
+import { downloadAttributionFile, downloadImageFile } from "@/lib/image-file";
+import { formatAttribution } from "@/lib/license";
 
 const edition = EDITIONS[0];
 const cats    = edition.categories;
@@ -23,6 +25,8 @@ export default function Home() {
   const [activeFilter, setActiveFilter] = useState<CategoryFilter>("all");
   const [basketOpen,   setBasketOpen]   = useState(false);
   const [inputValue,   setInputValue]   = useState("");
+  const [selectedFiles, setSelectedFiles] = useState<CommonsFile[]>([]);
+  const [batchAction, setBatchAction] = useState<"images" | "attribution" | null>(null);
   const { format, setFormat }           = useAttributionFormat();
   const { basket }                      = useBasket();
   const sentinelRef                     = useRef<HTMLDivElement>(null);
@@ -75,6 +79,9 @@ export default function Home() {
   const displayFiles = isSearchMode ? searchHook.files      : browseFiles;
   const isLoading    = isSearchMode ? searchHook.isLoading  : browseIsLoading;
   const activeError  = isSearchMode ? searchHook.error      : null;
+  const selectedIds = new Set(selectedFiles.map((file) => file.pageId));
+  const allVisibleSelected =
+    displayFiles.length > 0 && displayFiles.every((file) => selectedIds.has(file.pageId));
 
   // ── Load-more ────────────────────────────────────────────────────────────
   const handleLoadMore = useCallback(() => {
@@ -116,6 +123,49 @@ export default function Home() {
     setInputValue("");
   };
 
+  const handleToggleSelect = useCallback((file: CommonsFile) => {
+    setSelectedFiles((previous) =>
+      previous.some((selected) => selected.pageId === file.pageId)
+        ? previous.filter((selected) => selected.pageId !== file.pageId)
+        : [...previous, file],
+    );
+  }, []);
+
+  const handleSelectAllVisible = useCallback(() => {
+    setSelectedFiles((previous) => {
+      const visibleIds = new Set(displayFiles.map((file) => file.pageId));
+      if (displayFiles.length > 0 && displayFiles.every((file) => previous.some((selected) => selected.pageId === file.pageId))) {
+        return previous.filter((file) => !visibleIds.has(file.pageId));
+      }
+      const existingIds = new Set(previous.map((file) => file.pageId));
+      return [...previous, ...displayFiles.filter((file) => !existingIds.has(file.pageId))];
+    });
+  }, [displayFiles]);
+
+  const handleDownloadSelected = useCallback(async () => {
+    if (selectedFiles.length === 0) return;
+    setBatchAction("images");
+    for (const file of selectedFiles) {
+      try {
+        await downloadImageFile(file, 800);
+        await new Promise((resolve) => window.setTimeout(resolve, 600));
+      } catch (error) {
+        console.error("Selected image download failed", file.title, error);
+      }
+    }
+    setBatchAction(null);
+  }, [selectedFiles]);
+
+  const handleDownloadSelectedAttribution = useCallback(async () => {
+    if (selectedFiles.length === 0) return;
+    setBatchAction("attribution");
+    for (const file of selectedFiles) {
+      downloadAttributionFile(file, formatAttribution(file, format));
+      await new Promise((resolve) => window.setTimeout(resolve, 350));
+    }
+    setBatchAction(null);
+  }, [selectedFiles, format]);
+
   return (
     <div className="min-h-screen" style={{ background: "hsl(var(--background))" }}>
 
@@ -146,6 +196,13 @@ export default function Home() {
               >
                 {edition.description}
               </p>
+               <p
+                 className="mt-3 text-[11px] uppercase tracking-[0.14em]"
+                 style={{ color: "hsl(var(--primary))", fontFamily: "var(--app-font-sans)" }}
+                 data-testid="text-firefly-handoff"
+               >
+                 Drag prepared images into Firefly, email, or other apps · Drag attributions into research notes · Save .txt for a record
+               </p>
             </div>
 
             {/* Attribution format toggle */}
@@ -316,6 +373,77 @@ export default function Home() {
               </button>
             </div>
           )}
+
+          <div
+            className="flex items-center gap-2 flex-wrap pt-1"
+            data-testid="selection-toolbar"
+          >
+            <span
+              className="text-xs mr-auto"
+              style={{ color: selectedFiles.length ? "hsl(var(--foreground))" : "hsl(var(--muted-foreground))" }}
+            >
+              {selectedFiles.length === 0
+                ? "Select images for a batch export"
+                : `${selectedFiles.length} image${selectedFiles.length === 1 ? "" : "s"} selected`}
+            </span>
+            <button
+              type="button"
+              onClick={handleSelectAllVisible}
+              disabled={displayFiles.length === 0}
+              className="text-xs px-3 py-1.5 rounded-full border disabled:opacity-40"
+              style={{
+                color: "hsl(var(--muted-foreground))",
+                borderColor: "hsl(var(--border))",
+              }}
+              data-testid="button-select-all-visible"
+            >
+              {allVisibleSelected ? "Clear visible" : "Select visible"}
+            </button>
+            {selectedFiles.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  onClick={handleDownloadSelected}
+                  disabled={batchAction !== null}
+                  className="text-xs px-3 py-1.5 rounded-full font-medium border disabled:opacity-50"
+                  style={{
+                    background: "hsl(var(--primary))",
+                    color: "hsl(var(--primary-foreground))",
+                    borderColor: "hsl(var(--primary))",
+                  }}
+                  data-testid="button-download-selected"
+                >
+                  {batchAction === "images" ? "Downloading…" : "Download images"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDownloadSelectedAttribution}
+                  disabled={batchAction !== null}
+                  className="text-xs px-3 py-1.5 rounded-full border disabled:opacity-50"
+                  style={{
+                    color: "hsl(var(--muted-foreground))",
+                    borderColor: "hsl(var(--border))",
+                  }}
+                  data-testid="button-download-selected-attribution"
+                >
+                  {batchAction === "attribution" ? "Saving…" : "Save .txt files"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedFiles([])}
+                  disabled={batchAction !== null}
+                  className="text-xs px-3 py-1.5 rounded-full border disabled:opacity-50"
+                  style={{
+                    color: "hsl(var(--muted-foreground))",
+                    borderColor: "hsl(var(--border))",
+                  }}
+                  data-testid="button-clear-selection"
+                >
+                  Clear
+                </button>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
@@ -352,7 +480,12 @@ export default function Home() {
             data-testid="grid-images"
           >
             {displayFiles.map((file) => (
-              <ImageCard key={`${file.categoryId}-${file.pageId}`} file={file} />
+              <ImageCard
+                key={`${file.categoryId}-${file.pageId}`}
+                file={file}
+                selected={selectedIds.has(file.pageId)}
+                onToggleSelect={handleToggleSelect}
+              />
             ))}
           </div>
         )}

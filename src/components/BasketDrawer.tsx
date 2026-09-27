@@ -4,37 +4,118 @@ import { CommonsFile } from "@/types/commons";
 import { formatAttribution } from "@/lib/license";
 import { useBasket } from "@/hooks/useBasket";
 import { useAttributionFormat } from "@/contexts/AttributionContext";
-import { cleanFilename } from "@/components/ImageCard";
-
-const API_BASE = "https://commons.wikimedia.org/w/api.php";
+import { cleanFilename, downloadAttributionFile, downloadImageFile } from "@/lib/image-file";
 
 async function downloadFile(file: CommonsFile, size = 800): Promise<void> {
-  const titleParam = encodeURIComponent(file.title);
-  const apiUrl = `${API_BASE}?origin=*&action=query&titles=${titleParam}&prop=imageinfo&iiprop=url&iiurlwidth=${size}&format=json`;
-  const res  = await fetch(apiUrl);
-  const data = await res.json();
-  const pages = data.query?.pages ?? {};
-  const page  = Object.values(pages)[0] as any;
-  const downloadUrl =
-    page?.imageinfo?.[0]?.thumburl ??
-    page?.imageinfo?.[0]?.url ??
-    file.imageInfo.url;
-
-  const imgRes = await fetch(downloadUrl);
-  const blob   = await imgRes.blob();
-  const objUrl = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href     = objUrl;
-  a.download = cleanFilename(file.title).replace(/\s+/g, "_") + ".jpg";
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(objUrl);
+  await downloadImageFile(file, size);
 }
 
 interface BasketDrawerProps {
   open: boolean;
   onClose: () => void;
+}
+
+function BasketItem({
+  file,
+  onRemove,
+  attribution,
+}: {
+  file: CommonsFile;
+  onRemove: () => void;
+  attribution: string;
+}) {
+  const displayName = cleanFilename(file.title);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [isSavingAttribution, setIsSavingAttribution] = useState(false);
+
+  const handleDownload = async () => {
+    setIsDownloading(true);
+    try {
+      await downloadFile(file);
+    } catch (error) {
+      console.error("Download failed", error);
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  const handleDownloadAttribution = () => {
+    setIsSavingAttribution(true);
+    try {
+      downloadAttributionFile(file, attribution);
+    } finally {
+      setIsSavingAttribution(false);
+    }
+  };
+
+  return (
+    <div
+      className="flex items-center gap-3 p-2.5 rounded-xl border"
+      style={{
+        background: "hsl(var(--card))",
+        borderColor: "hsl(var(--card-border))",
+      }}
+      data-testid={`basket-item-${file.pageId}`}
+    >
+      <div className="w-12 h-12 rounded-lg overflow-hidden bg-black flex-shrink-0">
+        <img
+          src={file.imageInfo.thumburl ?? file.imageInfo.url}
+          alt={displayName}
+          className="w-full h-full object-cover"
+        />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p
+          className="text-xs font-medium leading-snug line-clamp-2"
+          style={{ fontFamily: "var(--app-font-serif)", color: "hsl(var(--foreground))" }}
+        >
+          {displayName}
+        </p>
+        <p
+          className="text-[10px] mt-0.5 uppercase tracking-wider"
+          style={{ color: "hsl(var(--muted-foreground))" }}
+        >
+          {file.licenseShortName}
+        </p>
+      </div>
+      <button
+        onClick={handleDownload}
+        disabled={isDownloading}
+        className="flex-shrink-0 text-[10px] px-2 py-1 rounded border uppercase tracking-wide disabled:opacity-50"
+        style={{
+          color: "hsl(var(--muted-foreground))",
+          borderColor: "hsl(var(--border))",
+        }}
+        data-testid={`button-download-basket-${file.pageId}`}
+      >
+        {isDownloading ? "Saving" : "Save"}
+      </button>
+      <button
+        onClick={handleDownloadAttribution}
+        disabled={isSavingAttribution}
+        className="flex-shrink-0 text-[10px] px-2 py-1 rounded border uppercase tracking-wide disabled:opacity-50"
+        style={{
+          color: "hsl(var(--muted-foreground))",
+          borderColor: "hsl(var(--border))",
+        }}
+        title="Save the matching attribution sidecar"
+        data-testid={`button-download-attribution-basket-${file.pageId}`}
+      >
+        {isSavingAttribution ? "Saving" : ".txt"}
+      </button>
+      <button
+        onClick={onRemove}
+        className="flex-shrink-0 text-[10px] px-2 py-1 rounded border uppercase tracking-wide"
+        style={{
+          color: "hsl(var(--muted-foreground))",
+          borderColor: "hsl(var(--border))",
+        }}
+        data-testid={`button-remove-basket-${file.pageId}`}
+      >
+        Remove
+      </button>
+    </div>
+  );
 }
 
 export function BasketDrawer({ open, onClose }: BasketDrawerProps) {
@@ -159,48 +240,12 @@ export function BasketDrawer({ open, onClose }: BasketDrawerProps) {
             {/* Item list */}
             <div className="flex-1 overflow-y-auto flex flex-col gap-2 px-5 py-4">
               {basket.map((file) => (
-                <div
+                <BasketItem
                   key={file.pageId}
-                  className="flex items-center gap-3 p-2.5 rounded-xl border"
-                  style={{
-                    background: "hsl(var(--card))",
-                    borderColor: "hsl(var(--card-border))",
-                  }}
-                  data-testid={`basket-item-${file.pageId}`}
-                >
-                  <div className="w-12 h-12 rounded-lg overflow-hidden bg-black flex-shrink-0">
-                    <img
-                      src={file.imageInfo.thumburl ?? file.imageInfo.url}
-                      alt={cleanFilename(file.title)}
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p
-                      className="text-xs font-medium leading-snug line-clamp-2"
-                      style={{ fontFamily: "var(--app-font-serif)", color: "hsl(var(--foreground))" }}
-                    >
-                      {cleanFilename(file.title)}
-                    </p>
-                    <p
-                      className="text-[10px] mt-0.5 uppercase tracking-wider"
-                      style={{ color: "hsl(var(--muted-foreground))" }}
-                    >
-                      {file.licenseShortName}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => removeFromBasket(file.pageId)}
-                    className="flex-shrink-0 text-[10px] px-2 py-1 rounded border uppercase tracking-wide"
-                    style={{
-                      color: "hsl(var(--muted-foreground))",
-                      borderColor: "hsl(var(--border))",
-                    }}
-                    data-testid={`button-remove-basket-${file.pageId}`}
-                  >
-                    Remove
-                  </button>
-                </div>
+                  file={file}
+                  attribution={formatAttribution(file, format)}
+                  onRemove={() => removeFromBasket(file.pageId)}
+                />
               ))}
             </div>
           </>

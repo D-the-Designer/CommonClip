@@ -15,7 +15,7 @@ export const EDITIONS: Edition[] = [
   {
     id: "art-archives",
     title: "Art & Archives Edition",
-    description: "Engravings, scientific prints, decorative patterns & space photography from the public record.",
+    description: "Photography and artwork from the public record.",
     categories: [
       { id: "engravings",  label: "Engravings & Etchings",    commonsCategory: "Engravings" },
       { id: "botanical",   label: "Botanical Illustrations",   commonsCategory: "Botanical_illustrations" },

@@ -1,11 +1,16 @@
-import { useState, useCallback } from "react";
-import { ImageOff } from "lucide-react";
+import { useState, useCallback, useRef } from "react";
+import { GripVertical, ImageOff } from "lucide-react";
 import { CommonsFile } from "@/types/commons";
 import { formatAttribution } from "@/lib/license";
 import { useBasket } from "@/hooks/useBasket";
 import { useAttributionFormat } from "@/contexts/AttributionContext";
-
-const API_BASE = "https://commons.wikimedia.org/w/api.php";
+import {
+  cleanFilename,
+  downloadAttributionFile,
+  downloadImageFile,
+  fetchImageFile,
+  getFireflyDownloadExtension,
+} from "@/lib/image-file";
 
 const SIZE_OPTIONS = [
   { label: "Thumb", value: 320 },
@@ -30,19 +35,22 @@ const CATEGORY_LABELS: Record<string, string> = {
   fish:        "Fish & Sea Monsters",
 };
 
-export function cleanFilename(title: string): string {
-  return title.replace(/^File:/, "").replace(/\.[^/.]+$/, "").replace(/_/g, " ");
-}
-
 interface ImageCardProps {
   file: CommonsFile;
+  selected?: boolean;
+  onToggleSelect?: (file: CommonsFile) => void;
 }
 
-export function ImageCard({ file }: ImageCardProps) {
+export function ImageCard({ file, selected = false, onToggleSelect }: ImageCardProps) {
   const [imgError, setImgError]       = useState(false);
   const [copied, setCopied]           = useState(false);
   const [selectedSize, setSelectedSize] = useState(800);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [isSavingAttribution, setIsSavingAttribution] = useState(false);
+  const [dragFileState, setDragFileState] = useState<"idle" | "preparing" | "ready" | "error">("idle");
+  const preparedDragFile = useRef<{ file: File; size: number } | null>(null);
+  const preparingDragFile = useRef<Promise<File> | null>(null);
+  const requestedDragSize = useRef(800);
 
   const { format }                             = useAttributionFormat();
   const { addToBasket, removeFromBasket, isInBasket } = useBasket();
@@ -66,33 +74,93 @@ export function ImageCard({ file }: ImageCardProps) {
   const handleDownload = useCallback(async () => {
     setIsDownloading(true);
     try {
-      const titleParam = encodeURIComponent(file.title);
-      const apiUrl = `${API_BASE}?origin=*&action=query&titles=${titleParam}&prop=imageinfo&iiprop=url&iiurlwidth=${selectedSize}&format=json`;
-      const res  = await fetch(apiUrl);
-      const data = await res.json();
-      const pages = data.query?.pages ?? {};
-      const page  = Object.values(pages)[0] as any;
-      const downloadUrl =
-        page?.imageinfo?.[0]?.thumburl ??
-        page?.imageinfo?.[0]?.url ??
-        file.imageInfo.url;
-
-      const imgRes = await fetch(downloadUrl);
-      const blob   = await imgRes.blob();
-      const objUrl = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href     = objUrl;
-      a.download = displayName.replace(/\s+/g, "_") + ".jpg";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(objUrl);
+      await downloadImageFile(file, selectedSize);
     } catch (err) {
       console.error("Download failed", err);
     } finally {
       setIsDownloading(false);
     }
   }, [file, selectedSize, displayName]);
+
+  const handleDownloadAttribution = useCallback(() => {
+    setIsSavingAttribution(true);
+    try {
+      downloadAttributionFile(file, formatAttribution(file, format));
+    } finally {
+      setIsSavingAttribution(false);
+    }
+  }, [file, format]);
+
+  const prepareDragFile = useCallback((): Promise<File> => {
+    if (preparedDragFile.current?.size === selectedSize) {
+      setDragFileState("ready");
+      return Promise.resolve(preparedDragFile.current.file);
+    }
+    if (preparingDragFile.current) return preparingDragFile.current;
+
+    setDragFileState("preparing");
+    let pending: Promise<File>;
+    pending = fetchImageFile(file, selectedSize)
+      .then((prepared) => {
+        if (requestedDragSize.current === selectedSize) {
+          preparedDragFile.current = { file: prepared, size: selectedSize };
+          setDragFileState("ready");
+        }
+        return prepared;
+      })
+      .catch((error) => {
+        if (requestedDragSize.current === selectedSize) setDragFileState("error");
+        console.error("Could not prepare image for drag and drop", file.title, error);
+        throw error;
+      })
+      .finally(() => {
+        if (preparingDragFile.current === pending) preparingDragFile.current = null;
+      });
+    preparingDragFile.current = pending;
+    return pending;
+  }, [file, selectedSize]);
+
+  const handleDragFileStart = useCallback((event: React.DragEvent<HTMLButtonElement>) => {
+    const prepared = preparedDragFile.current;
+    if (!prepared || prepared.size !== selectedSize) {
+      event.preventDefault();
+      setDragFileState("preparing");
+      return;
+    }
+
+    const transfer = event.dataTransfer;
+    transfer.effectAllowed = "copy";
+    try {
+      transfer.items.add(prepared.file);
+    } catch {
+      // Some browser and app combinations reject scripted file items; keep the URL payload as a fallback.
+    }
+    transfer.setData("text/uri-list", file.imageInfo.url);
+    transfer.setData(
+      "text/html",
+      `<img src="${file.imageInfo.url.replace(/&/g, "&amp;").replace(/\"/g, "&quot;")}" alt="${displayName.replace(/&/g, "&amp;").replace(/\"/g, "&quot;")}">`,
+    );
+  }, [displayName, file, selectedSize]);
+
+  const handleAttributionDragStart = useCallback((event: React.DragEvent<HTMLButtonElement>) => {
+    const transfer = event.dataTransfer;
+    transfer.effectAllowed = "copy";
+    transfer.setData("text/plain", formatAttribution(file, "plain"));
+    transfer.setData("text/markdown", formatAttribution(file, "markdown"));
+    transfer.setData("text/html", formatAttribution(file, "html"));
+    transfer.setData("application/x-common-clip-metadata+json", JSON.stringify({
+      title: displayName,
+      artist: file.artistText || null,
+      year: file.year || null,
+      license: file.licenseShortName,
+      licenseUrl: file.imageInfo.extmetadata.LicenseUrl?.value || null,
+      sourceUrl: file.commonsUrl,
+      imageUrl: file.imageInfo.url,
+      description: file.imageInfo.extmetadata.ImageDescription?.value || null,
+      credit: file.imageInfo.extmetadata.Credit?.value || null,
+      pageId: file.pageId,
+    }));
+  }, [displayName, file]);
 
   const handleBasketToggle = useCallback(() => {
     if (inBasket) removeFromBasket(file.pageId);
@@ -104,7 +172,11 @@ export function ImageCard({ file }: ImageCardProps) {
       <div
         data-testid={`card-broken-${file.pageId}`}
         className="break-inside-avoid mb-4 rounded-xl overflow-hidden border"
-        style={{ background: "hsl(var(--card))", borderColor: "hsl(var(--card-border))" }}
+       style={{
+         background: "hsl(var(--card))",
+         borderColor: selected ? "hsl(var(--primary))" : "hsl(var(--card-border))",
+         boxShadow: selected ? "0 0 0 1px hsl(var(--primary) / 0.35)" : undefined,
+       }}
       >
         <div className="flex flex-col items-center justify-center p-8 gap-3 text-center" style={{ minHeight: 180 }}>
           <ImageOff size={28} style={{ color: "hsl(var(--muted-foreground))" }} />
@@ -133,7 +205,7 @@ export function ImageCard({ file }: ImageCardProps) {
       style={{ background: "hsl(var(--card))", borderColor: "hsl(var(--card-border))" }}
     >
       {/* Thumbnail */}
-      <div className="relative bg-black" style={{ minHeight: 140 }}>
+        <div className="relative bg-black" style={{ minHeight: 140 }}>
         <img
           src={file.imageInfo.thumburl ?? file.imageInfo.url}
           alt={displayName}
@@ -141,7 +213,34 @@ export function ImageCard({ file }: ImageCardProps) {
           onError={() => setImgError(true)}
           data-testid={`img-thumbnail-${file.pageId}`}
           loading="lazy"
+          draggable={false}
         />
+        {onToggleSelect && (
+          <button
+            type="button"
+            onClick={() => onToggleSelect(file)}
+            aria-label={selected ? `Deselect ${displayName}` : `Select ${displayName}`}
+            aria-pressed={selected}
+            className="absolute top-2 right-2 flex items-center justify-center w-7 h-7 rounded-full border text-sm font-bold transition-all hover:scale-105"
+            style={
+              selected
+                ? {
+                    background: "hsl(var(--primary))",
+                    color: "hsl(var(--primary-foreground))",
+                    borderColor: "hsl(var(--primary))",
+                  }
+                : {
+                    background: "hsl(var(--background) / 0.78)",
+                    color: "hsl(var(--foreground))",
+                    borderColor: "hsl(var(--foreground) / 0.55)",
+                    backdropFilter: "blur(6px)",
+                  }
+            }
+            data-testid={`button-select-${file.pageId}`}
+          >
+            {selected ? "✓" : ""}
+          </button>
+        )}
         {/* Category chip */}
         <span
           className="absolute top-2 left-2 text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-widest"
@@ -189,7 +288,14 @@ export function ImageCard({ file }: ImageCardProps) {
         <div className="flex items-center gap-1.5">
           <select
             value={selectedSize}
-            onChange={(e) => setSelectedSize(Number(e.target.value))}
+            onChange={(e) => {
+              const size = Number(e.target.value);
+              requestedDragSize.current = size;
+              preparedDragFile.current = null;
+              preparingDragFile.current = null;
+              setSelectedSize(size);
+              setDragFileState("idle");
+            }}
             className="text-[11px] rounded-md px-2 py-1 flex-1 border appearance-none"
             style={{
               background: "hsl(var(--secondary))",
@@ -204,7 +310,7 @@ export function ImageCard({ file }: ImageCardProps) {
               </option>
             ))}
           </select>
-          <button
+           <button
             onClick={handleDownload}
             disabled={isDownloading}
             className="text-[11px] px-2.5 py-1 rounded-md font-medium border transition-opacity disabled:opacity-50 whitespace-nowrap"
@@ -215,12 +321,46 @@ export function ImageCard({ file }: ImageCardProps) {
             }}
             data-testid={`button-download-${file.pageId}`}
           >
-            {isDownloading ? "..." : "Download"}
+              {isDownloading ? "..." : `Download ${getFireflyDownloadExtension(file).toUpperCase()}`}
           </button>
         </div>
 
         {/* Action buttons */}
         <div className="flex items-center gap-1.5 flex-wrap">
+          <button
+            type="button"
+            draggable={dragFileState === "ready"}
+            onPointerEnter={() => {
+              if (dragFileState !== "ready" && dragFileState !== "preparing") {
+                void prepareDragFile().catch(() => {});
+              }
+            }}
+            onFocus={() => {
+              if (dragFileState !== "ready" && dragFileState !== "preparing") {
+                void prepareDragFile().catch(() => {});
+              }
+            }}
+            onClick={() => {
+              if (dragFileState !== "ready" && dragFileState !== "preparing") {
+                void prepareDragFile().catch(() => {});
+              }
+            }}
+            onDragStart={handleDragFileStart}
+            className="text-[11px] px-2 py-1.5 rounded-md font-medium border transition-colors cursor-grab active:cursor-grabbing"
+            style={{
+              background: dragFileState === "ready" ? "rgba(178,132,51,0.18)" : "transparent",
+              color: dragFileState === "ready" ? "#c9a55a" : "hsl(var(--muted-foreground))",
+              borderColor: dragFileState === "ready" ? "rgba(178,132,51,0.4)" : "hsl(var(--border))",
+            }}
+            title="Hover or click to prepare the selected image size. When ready, drag it into Firefly, email, or another app. If the destination rejects browser file drags, use Download and drag it from Downloads."
+            aria-label={dragFileState === "ready" ? `Drag ${displayName} file` : `Prepare ${displayName} file for dragging`}
+            data-testid={`button-drag-file-${file.pageId}`}
+          >
+            <span className="inline-flex items-center gap-1">
+              <GripVertical size={12} />
+              {dragFileState === "preparing" ? "Preparing…" : dragFileState === "ready" ? "Drag file" : dragFileState === "error" ? "Try drag again" : "Prepare drag"}
+            </span>
+          </button>
           <button
             onClick={handleCopyAttribution}
             className="text-[11px] px-2.5 py-1.5 rounded-md font-medium transition-all flex-1 border"
@@ -232,6 +372,36 @@ export function ImageCard({ file }: ImageCardProps) {
             data-testid={`button-copy-${file.pageId}`}
           >
             {copied ? "Copied!" : "Copy attribution"}
+          </button>
+          <button
+            type="button"
+            draggable
+            onDragStart={handleAttributionDragStart}
+            className="text-[11px] px-2 py-1.5 rounded-md font-medium border transition-colors cursor-grab active:cursor-grabbing"
+            style={{
+              background: "transparent",
+              color: "hsl(var(--muted-foreground))",
+              borderColor: "hsl(var(--border))",
+            }}
+            title="Drag formatted citation text or metadata into a document, email, or research notes."
+            aria-label={`Drag citation and metadata for ${displayName}`}
+            data-testid={`button-drag-attribution-${file.pageId}`}
+          >
+            <span className="inline-flex items-center gap-1"><GripVertical size={12} />Drag citation</span>
+          </button>
+          <button
+            onClick={handleDownloadAttribution}
+            disabled={isSavingAttribution}
+            className="text-[11px] px-2 py-1.5 rounded-md font-medium border transition-opacity disabled:opacity-50"
+            style={{
+              background: "transparent",
+              color: "hsl(var(--muted-foreground))",
+              borderColor: "hsl(var(--border))",
+            }}
+            title="Download a matching text sidecar with this image's attribution"
+            data-testid={`button-download-attribution-${file.pageId}`}
+          >
+            {isSavingAttribution ? "Saving…" : "Save .txt"}
           </button>
           <a
             href={file.commonsUrl}

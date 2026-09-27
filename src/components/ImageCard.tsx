@@ -240,7 +240,7 @@ export function ImageCard({ file, selected = false, onToggleSelect }: ImageCardP
             }}
             aria-live="polite"
           >
-            {dragFileState === "preparing" ? "Preparing image for drag…" : dragFileState === "ready" ? "Drag image to Firefly or another app" : "Drag prep failed — move over image to retry"}
+            {dragFileState === "preparing" ? "Preparing image for drag…" : dragFileState === "ready" ? "Drag attributed image to your app" : "Drag prep failed — move over image to retry"}
           </span>
         )}
         {onToggleSelect && (

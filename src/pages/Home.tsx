@@ -201,7 +201,7 @@ export default function Home() {
                  style={{ color: "hsl(var(--primary))", fontFamily: "var(--app-font-sans)" }}
                  data-testid="text-firefly-handoff"
                >
-                 Drag images into Firefly, email, or other apps · Drag attributions into research notes · Save .txt for a record
+                 Drag images into your favorite desktop and web apps · Drag attributions into research notes · Save .txt for a record
                </p>
             </div>
 

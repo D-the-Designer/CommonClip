@@ -128,18 +128,15 @@ export function ImageCard({ file, selected = false, onToggleSelect }: ImageCardP
 
     const transfer = event.dataTransfer;
     transfer.effectAllowed = "copy";
+    let fileAdded = false;
     if (prepared?.size === selectedSize) {
       try {
         transfer.items.add(prepared.file);
+        fileAdded = true;
       } catch {
         // Some browser and app combinations reject scripted file items; keep the URL payload as a fallback.
       }
     }
-    transfer.setData("text/uri-list", file.imageInfo.url);
-    transfer.setData(
-      "text/html",
-      `<img src="${file.imageInfo.url.replace(/&/g, "&amp;").replace(/\"/g, "&quot;")}" alt="${displayName.replace(/&/g, "&amp;").replace(/\"/g, "&quot;")}">`,
-    );
     transfer.setData("application/x-common-clip-metadata+json", JSON.stringify({
       title: displayName,
       artist: file.artistText || null,
@@ -148,6 +145,15 @@ export function ImageCard({ file, selected = false, onToggleSelect }: ImageCardP
       sourceUrl: file.commonsUrl,
       imageUrl: file.imageInfo.url,
     }));
+    // Prefer the actual attributed file. Supplying a URL alongside it can make
+    // creative apps import a remote-link placeholder instead of the file.
+    if (!fileAdded) {
+      transfer.setData("text/uri-list", file.imageInfo.url);
+      transfer.setData(
+        "text/html",
+        `<img src="${file.imageInfo.url.replace(/&/g, "&amp;").replace(/\"/g, "&quot;")}" alt="${displayName.replace(/&/g, "&amp;").replace(/\"/g, "&quot;")}">`,
+      );
+    }
   }, [displayName, file, prepareDragFile, selectedSize]);
 
   const handleAttributionDragStart = useCallback((event: React.DragEvent<HTMLButtonElement>) => {

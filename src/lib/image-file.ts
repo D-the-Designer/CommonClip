@@ -57,9 +57,10 @@ function makeXmpPacket(file: CommonsFile): Uint8Array {
   const title = cleanFilename(file.title);
   const creator = cleanHtml(file.artistText || "Unknown");
   const license = file.licenseShortName || "Unknown license";
-  const licenseUrl = file.imageInfo.extmetadata.LicenseUrl?.value || "";
-  const credit = cleanHtml(file.imageInfo.extmetadata.Credit?.value || creator);
-  const description = cleanHtml(file.imageInfo.extmetadata.ImageDescription?.value || "");
+  const extmetadata = file.imageInfo.extmetadata;
+  const licenseUrl = extmetadata?.LicenseUrl?.value || "";
+  const credit = cleanHtml(extmetadata?.Credit?.value || creator);
+  const description = cleanHtml(extmetadata?.ImageDescription?.value || "");
   const attribution = formatAttribution(file, "plain");
   const fullDescription = [attribution, description && `Description: ${description}`].filter(Boolean).join("\n\n");
   const packet = `<?xpacket begin="\uFEFF" id="W5M0MpCehiHzreSzNTczkc9d"?>\n` +

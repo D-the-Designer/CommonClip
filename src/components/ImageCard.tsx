@@ -153,11 +153,11 @@ export function ImageCard({ file, selected = false, onToggleSelect }: ImageCardP
       artist: file.artistText || null,
       year: file.year || null,
       license: file.licenseShortName,
-      licenseUrl: file.imageInfo.extmetadata.LicenseUrl?.value || null,
+      licenseUrl: file.imageInfo.extmetadata?.LicenseUrl?.value || null,
       sourceUrl: file.commonsUrl,
       imageUrl: file.imageInfo.url,
-      description: file.imageInfo.extmetadata.ImageDescription?.value || null,
-      credit: file.imageInfo.extmetadata.Credit?.value || null,
+      description: file.imageInfo.extmetadata?.ImageDescription?.value || null,
+      credit: file.imageInfo.extmetadata?.Credit?.value || null,
       pageId: file.pageId,
     }));
   }, [displayName, file]);

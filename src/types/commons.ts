@@ -13,7 +13,7 @@ export interface CommonsImageInfo {
   thumburl?: string;
   width: number;
   height: number;
-  extmetadata: ExtMetadata;
+  extmetadata?: ExtMetadata;
   descriptionurl?: string;
   descriptionshorturl?: string;
 }

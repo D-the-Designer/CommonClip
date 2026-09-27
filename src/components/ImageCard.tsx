@@ -120,11 +120,11 @@ export function ImageCard({ file, selected = false, onToggleSelect }: ImageCardP
     return pending;
   }, [file, selectedSize]);
 
-  const handleDragFileStart = useCallback((event: React.DragEvent<HTMLButtonElement>) => {
+  const handleDragFileStart = useCallback((event: React.DragEvent<HTMLImageElement>) => {
     const prepared = preparedDragFile.current;
     if (!prepared || prepared.size !== selectedSize) {
       event.preventDefault();
-      setDragFileState("preparing");
+      void prepareDragFile().catch(() => {});
       return;
     }
 
@@ -140,7 +140,7 @@ export function ImageCard({ file, selected = false, onToggleSelect }: ImageCardP
       "text/html",
       `<img src="${file.imageInfo.url.replace(/&/g, "&amp;").replace(/\"/g, "&quot;")}" alt="${displayName.replace(/&/g, "&amp;").replace(/\"/g, "&quot;")}">`,
     );
-  }, [displayName, file, selectedSize]);
+  }, [displayName, file, prepareDragFile, selectedSize]);
 
   const handleAttributionDragStart = useCallback((event: React.DragEvent<HTMLButtonElement>) => {
     const transfer = event.dataTransfer;
@@ -205,7 +205,15 @@ export function ImageCard({ file, selected = false, onToggleSelect }: ImageCardP
       style={{ background: "hsl(var(--card))", borderColor: "hsl(var(--card-border))" }}
     >
       {/* Thumbnail */}
-        <div className="relative bg-black" style={{ minHeight: 140 }}>
+      <div
+        className="relative bg-black"
+        style={{ minHeight: 140 }}
+        onPointerEnter={() => {
+          if (dragFileState !== "ready" && dragFileState !== "preparing") {
+            void prepareDragFile().catch(() => {});
+          }
+        }}
+      >
         <img
           src={file.imageInfo.thumburl ?? file.imageInfo.url}
           alt={displayName}
@@ -213,8 +221,23 @@ export function ImageCard({ file, selected = false, onToggleSelect }: ImageCardP
           onError={() => setImgError(true)}
           data-testid={`img-thumbnail-${file.pageId}`}
           loading="lazy"
-          draggable={false}
+          draggable={dragFileState === "ready"}
+          onDragStart={handleDragFileStart}
+          style={{ cursor: dragFileState === "ready" ? "grab" : undefined }}
         />
+        {dragFileState !== "idle" && (
+          <span
+            className="absolute bottom-2 left-2 text-[10px] px-2 py-1 rounded-full pointer-events-none"
+            style={{
+              background: "hsl(var(--background) / 0.82)",
+              color: dragFileState === "error" ? "#fca5a5" : "hsl(var(--foreground))",
+              backdropFilter: "blur(6px)",
+            }}
+            aria-live="polite"
+          >
+            {dragFileState === "preparing" ? "Preparing image for drag…" : dragFileState === "ready" ? "Drag image to Firefly or another app" : "Drag prep failed — move over image to retry"}
+          </span>
+        )}
         {onToggleSelect && (
           <button
             type="button"
@@ -327,40 +350,6 @@ export function ImageCard({ file, selected = false, onToggleSelect }: ImageCardP
 
         {/* Action buttons */}
         <div className="flex items-center gap-1.5 flex-wrap">
-          <button
-            type="button"
-            draggable={dragFileState === "ready"}
-            onPointerEnter={() => {
-              if (dragFileState !== "ready" && dragFileState !== "preparing") {
-                void prepareDragFile().catch(() => {});
-              }
-            }}
-            onFocus={() => {
-              if (dragFileState !== "ready" && dragFileState !== "preparing") {
-                void prepareDragFile().catch(() => {});
-              }
-            }}
-            onClick={() => {
-              if (dragFileState !== "ready" && dragFileState !== "preparing") {
-                void prepareDragFile().catch(() => {});
-              }
-            }}
-            onDragStart={handleDragFileStart}
-            className="text-[11px] px-2 py-1.5 rounded-md font-medium border transition-colors cursor-grab active:cursor-grabbing"
-            style={{
-              background: dragFileState === "ready" ? "rgba(178,132,51,0.18)" : "transparent",
-              color: dragFileState === "ready" ? "#c9a55a" : "hsl(var(--muted-foreground))",
-              borderColor: dragFileState === "ready" ? "rgba(178,132,51,0.4)" : "hsl(var(--border))",
-            }}
-            title="Hover or click to prepare the selected image size. When ready, drag it into Firefly, email, or another app. If the destination rejects browser file drags, use Download and drag it from Downloads."
-            aria-label={dragFileState === "ready" ? `Drag ${displayName} file` : `Prepare ${displayName} file for dragging`}
-            data-testid={`button-drag-file-${file.pageId}`}
-          >
-            <span className="inline-flex items-center gap-1">
-              <GripVertical size={12} />
-              {dragFileState === "preparing" ? "Preparing…" : dragFileState === "ready" ? "Drag file" : dragFileState === "error" ? "Try drag again" : "Prepare drag"}
-            </span>
-          </button>
           <button
             onClick={handleCopyAttribution}
             className="text-[11px] px-2.5 py-1.5 rounded-md font-medium transition-all flex-1 border"

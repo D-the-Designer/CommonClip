@@ -123,19 +123,19 @@ export function ImageCard({ file, selected = false, onToggleSelect }: ImageCardP
   const handleDragFileStart = useCallback((event: React.DragEvent<HTMLImageElement>) => {
     const prepared = preparedDragFile.current;
     if (!prepared || prepared.size !== selectedSize) {
+      event.preventDefault();
       void prepareDragFile().catch(() => {});
+      return;
     }
 
     const transfer = event.dataTransfer;
     transfer.effectAllowed = "copy";
-    let fileAdded = false;
-    if (prepared?.size === selectedSize) {
-      try {
-        transfer.items.add(prepared.file);
-        fileAdded = true;
-      } catch {
-        // Some browser and app combinations reject scripted file items; keep the URL payload as a fallback.
-      }
+    try {
+      transfer.items.add(prepared.file);
+    } catch {
+      event.preventDefault();
+      setDragFileState("error");
+      return;
     }
     transfer.setData("application/x-common-clip-metadata+json", JSON.stringify({
       title: displayName,
@@ -145,15 +145,8 @@ export function ImageCard({ file, selected = false, onToggleSelect }: ImageCardP
       sourceUrl: file.commonsUrl,
       imageUrl: file.imageInfo.url,
     }));
-    // Prefer the actual attributed file. Supplying a URL alongside it can make
-    // creative apps import a remote-link placeholder instead of the file.
-    if (!fileAdded) {
-      transfer.setData("text/uri-list", file.imageInfo.url);
-      transfer.setData(
-        "text/html",
-        `<img src="${file.imageInfo.url.replace(/&/g, "&amp;").replace(/\"/g, "&quot;")}" alt="${displayName.replace(/&/g, "&amp;").replace(/\"/g, "&quot;")}">`,
-      );
-    }
+    // Do not send a remote URL fallback: Firefly can create a blank linked
+    // placeholder when the actual attributed file is not what gets transferred.
   }, [displayName, file, prepareDragFile, selectedSize]);
 
   const handleAttributionDragStart = useCallback((event: React.DragEvent<HTMLButtonElement>) => {
@@ -235,7 +228,7 @@ export function ImageCard({ file, selected = false, onToggleSelect }: ImageCardP
           onError={() => setImgError(true)}
           data-testid={`img-thumbnail-${file.pageId}`}
           loading="lazy"
-          draggable
+          draggable={dragFileState === "ready"}
           onDragStart={handleDragFileStart}
           style={{ cursor: "grab" }}
         />
@@ -249,7 +242,7 @@ export function ImageCard({ file, selected = false, onToggleSelect }: ImageCardP
             }}
             aria-live="polite"
           >
-            {dragFileState === "preparing" ? "Preparing attributed image…" : dragFileState === "ready" ? "Drag attributed image to your app" : "Drag image link · attribution included"}
+            {dragFileState === "preparing" ? "Preparing attributed image…" : dragFileState === "ready" ? "Drag attributed image to your app" : dragFileState === "error" ? `Drag unavailable · use Download ${getFireflyDownloadExtension(file).toUpperCase()}` : ""}
           </span>
         )}
         {onToggleSelect && (

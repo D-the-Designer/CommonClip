@@ -123,23 +123,31 @@ export function ImageCard({ file, selected = false, onToggleSelect }: ImageCardP
   const handleDragFileStart = useCallback((event: React.DragEvent<HTMLImageElement>) => {
     const prepared = preparedDragFile.current;
     if (!prepared || prepared.size !== selectedSize) {
-      event.preventDefault();
       void prepareDragFile().catch(() => {});
-      return;
     }
 
     const transfer = event.dataTransfer;
     transfer.effectAllowed = "copy";
-    try {
-      transfer.items.add(prepared.file);
-    } catch {
-      // Some browser and app combinations reject scripted file items; keep the URL payload as a fallback.
+    if (prepared?.size === selectedSize) {
+      try {
+        transfer.items.add(prepared.file);
+      } catch {
+        // Some browser and app combinations reject scripted file items; keep the URL payload as a fallback.
+      }
     }
     transfer.setData("text/uri-list", file.imageInfo.url);
     transfer.setData(
       "text/html",
       `<img src="${file.imageInfo.url.replace(/&/g, "&amp;").replace(/\"/g, "&quot;")}" alt="${displayName.replace(/&/g, "&amp;").replace(/\"/g, "&quot;")}">`,
     );
+    transfer.setData("application/x-common-clip-metadata+json", JSON.stringify({
+      title: displayName,
+      artist: file.artistText || null,
+      year: file.year || null,
+      license: file.licenseShortName,
+      sourceUrl: file.commonsUrl,
+      imageUrl: file.imageInfo.url,
+    }));
   }, [displayName, file, prepareDragFile, selectedSize]);
 
   const handleAttributionDragStart = useCallback((event: React.DragEvent<HTMLButtonElement>) => {
@@ -221,9 +229,9 @@ export function ImageCard({ file, selected = false, onToggleSelect }: ImageCardP
           onError={() => setImgError(true)}
           data-testid={`img-thumbnail-${file.pageId}`}
           loading="lazy"
-          draggable={dragFileState === "ready"}
+          draggable
           onDragStart={handleDragFileStart}
-          style={{ cursor: dragFileState === "ready" ? "grab" : undefined }}
+          style={{ cursor: "grab" }}
         />
         {dragFileState !== "idle" && (
           <span
@@ -235,7 +243,7 @@ export function ImageCard({ file, selected = false, onToggleSelect }: ImageCardP
             }}
             aria-live="polite"
           >
-            {dragFileState === "preparing" ? "Preparing image for drag…" : dragFileState === "ready" ? "Drag attributed image to your app" : "Drag prep failed — move over image to retry"}
+            {dragFileState === "preparing" ? "Preparing attributed image…" : dragFileState === "ready" ? "Drag attributed image to your app" : "Drag image link · attribution included"}
           </span>
         )}
         {onToggleSelect && (

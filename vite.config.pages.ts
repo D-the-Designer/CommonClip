@@ -4,7 +4,9 @@ import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 
 export default defineConfig({
-  base: "/CommonClip/",
+  // Use the domain root for the custom Common Clip subdomain. Override with
+  // PAGES_BASE=/CommonClip/ when building for the github.io project URL.
+  base: process.env.PAGES_BASE ?? "/CommonClip/",
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {

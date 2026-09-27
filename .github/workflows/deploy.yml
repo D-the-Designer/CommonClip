@@ -31,6 +31,8 @@ jobs:
         run: npm install --legacy-peer-deps
 
       - name: Build
+        env:
+          PAGES_BASE: /
         run: npm run build:pages
 
       - name: Upload Pages artifact

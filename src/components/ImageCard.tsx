@@ -219,11 +219,6 @@ export function ImageCard({ file, selected = false, onToggleSelect }: ImageCardP
           alt={displayName}
           className="w-full object-cover block"
           onError={() => setImgError(true)}
-          onLoad={() => {
-            if (dragFileState !== "ready" && dragFileState !== "preparing") {
-              void prepareDragFile().catch(() => {});
-            }
-          }}
           data-testid={`img-thumbnail-${file.pageId}`}
           loading="lazy"
           draggable={dragFileState === "ready"}

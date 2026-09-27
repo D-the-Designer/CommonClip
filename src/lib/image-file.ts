@@ -284,22 +284,22 @@ async function makeFireflyCompatible(blob: Blob): Promise<{ blob: Blob; mimeType
 }
 
 export async function fetchImageFile(file: CommonsFile, size = 800): Promise<File> {
-  const titleParam = encodeURIComponent(file.title);
-  const apiUrl = `https://commons.wikimedia.org/w/api.php?origin=*&action=query&titles=${titleParam}&prop=imageinfo&iiprop=url&iilimit=1&iiurlwidth=${size}&format=json`;
-  const response = await fetch(apiUrl);
-  if (!response.ok) throw new Error(`Image metadata request failed with status ${response.status}`);
-
-  const data = await response.json();
-  const pages = data.query?.pages ?? {};
-  const page = Object.values(pages)[0] as {
-    imageinfo?: Array<{ thumburl?: string; url?: string }>;
-  } | undefined;
-  const imageUrl = page?.imageinfo?.[0]?.thumburl ?? page?.imageinfo?.[0]?.url ?? file.imageInfo.url;
-  const imageResponse = await fetch(imageUrl, {
+  // The gallery already has the current file URLs from Commons. Re-querying by
+  // title can fail for cached/renamed files and was blocking drag preparation.
+  const thumbUrl = file.imageInfo.thumburl;
+  const imageUrl = thumbUrl ?? file.imageInfo.url;
+  let imageResponse = await fetch(imageUrl, {
     mode: "cors",
     credentials: "omit",
     cache: "force-cache",
   });
+  if (!imageResponse.ok && thumbUrl && thumbUrl !== file.imageInfo.url) {
+    imageResponse = await fetch(file.imageInfo.url, {
+      mode: "cors",
+      credentials: "omit",
+      cache: "force-cache",
+    });
+  }
   if (!imageResponse.ok) throw new Error(`Image request failed with status ${imageResponse.status}`);
 
   const compatible = await makeFireflyCompatible(await imageResponse.blob());
